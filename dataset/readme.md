@@ -22,7 +22,7 @@ Bus - 8729,
 Pedestrian - 24935,   
 Bicycle - 20928,   
 MotorCycle - 818,   
-Emergency Vehicle - 132,
-Animal - 186,
+Emergency Vehicle - 132,  
+Animal - 186,  
 Other Vehicle - 33376.  
 			      
