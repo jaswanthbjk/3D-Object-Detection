@@ -5,4 +5,10 @@ This work is to study a perception problem of detecting 3D Objects in the contex
 This project is in fullfillment of Research and Development course of Masters in Autonomous Systems Degree at Hochschule Bonn Rhein Sieg. 
 
 ## Contributors:
-Jaswanth Bandlamudi.
+Jaswanth Bandlamudi.  
+  
+  
+## Supervisors
+Prof. Dr. Paul G Ploeger, H-BRS.
+Dr. Anastassia Kuestenmacher, H-BRS.
+Luis Octavio Arriaga Camargo, DFKI.
