@@ -9,6 +9,9 @@ Jaswanth Bandlamudi.
   
   
 ## Supervisors
-Prof. Dr. Paul G Ploeger, H-BRS.
-Dr. Anastassia Kuestenmacher, H-BRS.
-Luis Octavio Arriaga Camargo, DFKI.
+Prof. Dr. Paul G Ploeger, H-BRS.  
+  
+Dr. Anastassia Kuestenmacher, H-BRS.  
+  
+Luis Octavio Arriaga Camargo, DFKI.  
+  
