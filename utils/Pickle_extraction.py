@@ -85,16 +85,8 @@ def read_2d_labels(img_name):
     path = r'F:\v1.01-train\Bbox2D'
     txt_name = img_name[7:-5] + '.txt'
     with open(os.path.join(path, txt_name), "r", encoding="utf-8") as f:
-        content = f.read().splitlines()
-    return refine_labels(content)
-
-
-def refine_labels(box2d):
-    box2d_refined = []
-    for i in box2d:
-        i = i.replace('[', '').replace(']', '').replace(',', '').split(' ')
-        box2d_refined.append(i)
-    return box2d_refined
+		content = eval(f.read())
+    return content
 
 
 def quaternion_yaw(q: Quaternion, in_image_frame: bool=True) -> float:
@@ -173,11 +165,12 @@ def extract_frustum_data_rgb_detection(idx_filename, split, output_filename, res
                 sample_annotation_tokens = sample_record['anns']
                 Box_2D = read_2d_labels(image_name)
                 for object,sample_annotation_token in zip(Box_2D, sample_annotation_tokens):
-                    class_name = object[0]
-                    min_x = float(object[1])
-                    min_y = float(object[2])
-                    max_x = float(object[3])
-                    max_y = float(object[4])
+                    class_name = object[1]
+                    min_x = float(object[0][0])
+                    min_y = float(object[0][1])
+                    max_x = float(object[0][2])
+                    max_y = float(object[0][3])
+					token = object[2]
                     box_2d = [min_x, min_y, max_x, max_y]
                     pc, box_2d_roi = extract_pc_in_box2d(pc, box_2d)
                     id_list.append(camera_token)
@@ -185,10 +178,6 @@ def extract_frustum_data_rgb_detection(idx_filename, split, output_filename, res
                     box2d_list.append(box_2d)
                     prob_list.append(100)
                     sample_annotation = level5data.get('sample_annotation', sample_annotation_token)
-
-
-
-
 
 
 if __name__ == '__main__':
