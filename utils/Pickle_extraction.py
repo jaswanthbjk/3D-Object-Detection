@@ -144,7 +144,7 @@ def extract_frustum_data_rgb_detection(idx_filename, split, output_filename, res
     input_list = []  # channel number = 4, xyz,intensity in rect camera coord
     frustum_angle_list = []  # angle of 2d box center from pos x-axis
     box3d_pred_list = []
-
+	token_list = []
     calib_list = []
     enlarge_box3d_list = []
     enlarge_box3d_size_list = []
@@ -172,12 +172,32 @@ def extract_frustum_data_rgb_detection(idx_filename, split, output_filename, res
                     max_y = float(object[0][3])
 					token = object[2]
                     box_2d = [min_x, min_y, max_x, max_y]
+					uvdepth = np.zeros((1, 3))
+					box2d_center = np.array([(min_x+max_x)/2.0,(min_y+max_y)/2.0])
+					uvdepth[0, 0:2] = box2d_center
+					uvdepth[0, 2] = 20
+					level5data.get_sample_data(sample_cam_token, box_vis_level=BoxVisibility.ANY)
+
                     pc, box_2d_roi = extract_pc_in_box2d(pc, box_2d)
                     id_list.append(camera_token)
                     type_list.append(class_name)
                     box2d_list.append(box_2d)
                     prob_list.append(100)
+					token_list.append(token)
                     sample_annotation = level5data.get('sample_annotation', sample_annotation_token)
+
+	with open(output_filename, 'wb') as fp:
+        pickle.dump(token_list, fp, -1)
+        pickle.dump(box2d_list, fp, -1)
+        pickle.dump(box3d_list, fp, -1)
+        pickle.dump(input_list, fp, -1)
+        pickle.dump(label_list, fp, -1)
+        pickle.dump(type_list, fp, -1)
+        pickle.dump(heading_list, fp, -1)
+        pickle.dump(box3d_size_list, fp, -1)
+        pickle.dump(frustum_angle_list, fp, -1)
+        pickle.dump(gt_box2d_list, fp, -1)
+        pickle.dump(calib_list, fp, -1)
 
 
 if __name__ == '__main__':
