@@ -130,25 +130,6 @@ def map_pointcloud_to_image(pointsensor_token: str, camera_token: str):
     return pc3d, pc2d
 
 
-def read_2d_labels(img_name):
-    path = r'F:\v1.01-train\Bbox2D'
-    txt_name = img_name[7:-5] + '.txt'
-    with open(os.path.join(path, txt_name), "r", encoding="utf-8") as f:
-        content = eval(f.read())
-    return content
-
-
-def quaternion_yaw(q: Quaternion, in_image_frame: bool = True) -> float:
-    if in_image_frame:
-        v = np.dot(q.rotation_matrix, np.array([1, 0, 0]))
-        yaw = -np.arctan2(v[2], v[0])
-    else:
-        v = np.dot(q.rotation_matrix, np.array([1, 0, 0]))
-        yaw = np.arctan2(v[1], v[0])
-
-    return yaw
-
-
 def extract_pc_in_box2d(pc, box2d):
     """ pc: (N,2), box2d: (xmin,ymin,xmax,ymax) """
     box2d_corners = np.zeros((4, 2))
@@ -500,7 +481,7 @@ def get_all_boxes_in_single_scene(scene_number, from_rgb_detection, ldf, use_mul
 if __name__ == '__main__':
     data_type = "train"
     file_type = "gt"
-    scene_list = range(218)
+    scene_list = range(148)
     for i in tqdm(scene_list):
         with tf.io.TFRecordWriter(
                 os.path.join('./',
@@ -511,72 +492,3 @@ if __name__ == '__main__':
                                                     object_classifier=None):
                 tfexample = fp.to_train_example()
                 tfrw.write(tfexample.SerializeToString())
-    # with tf.io.TFRecordWriter(
-    #         os.path.join('./',
-    #                      "scene_{0}_{1}_{2}.tfrec".format(21, data_type, file_type))) as tfrw:
-    #     for fp in get_all_boxes_in_single_scene(scene_number=21, from_rgb_detection=False,
-    #                                             ldf=LyftData,
-    #                                             use_multisweep=False,
-    #                                             object_classifier=None):
-    #         tfexample = fp.to_train_example()
-    #         tfrw.write(tfexample.SerializeToString())
-
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--gen_train', action='store_true',
-#                         help='Generate train split frustum data with perturbed GT 2D boxes')
-#
-#     parser.add_argument('--gen_val', action='store_true', help='Generate val split frustum data with GT 2D boxes')
-#
-#     parser.add_argument('--gen_val_rgb_detection', action='store_true',
-#                         help='Generate val split frustum data with RGB detection 2D boxes')
-#
-#     parser.add_argument('--car_only', action='store_true', help='Only generate cars')
-#     parser.add_argument('--people_only', action='store_true', help='Only generate peds and cycs')
-#     parser.add_argument('--save_dir', default=None, type=str, help='data directory to save data')
-#
-#     args = parser.parse_args()
-#
-#     np.random.seed(3)
-#
-#     if args.save_dir is None:
-#         save_dir = 'kitti/data/pickle_data'
-#     else:
-#         save_dir = args.save_dir
-#
-#     if not os.path.exists(save_dir):
-#         os.makedirs(save_dir)
-#
-#     if args.car_only:
-#         type_whitelist = ['Car']
-#         output_prefix = 'frustum_caronly_'
-#
-#     elif args.people_only:
-#         type_whitelist = ['Pedestrian', 'Cyclist']
-#         output_prefix = 'frustum_pedcyc_'
-#
-#     else:
-#         type_whitelist = ['Car', 'Pedestrian', 'Cyclist']
-#         output_prefix = 'frustum_carpedcyc_'
-#
-#     if args.gen_train:
-#         extract_frustum_data(
-#             os.path.join(BASE_DIR, 'image_sets/train.txt'),
-#             'training',
-#             os.path.join(save_dir, output_prefix + 'train.pickle'),
-#             perturb_box2d=True, augmentX=5,
-#             type_whitelist=type_whitelist)
-#
-#     if args.gen_val:
-#         extract_frustum_data(
-#             os.path.join(BASE_DIR, 'image_sets/val.txt'),
-#             'training',
-#             os.path.join(save_dir, output_prefix + 'val.pickle'),
-#             perturb_box2d=False, augmentX=1,
-#             type_whitelist=type_whitelist)
-#
-#     if args.gen_val_rgb_detection:
-#         extract_frustum_data_rgb_detection(
-#             os.path.join(BASE_DIR, 'rgb_detections/rgb_detection_val.txt'),
-#             'training',
-#             os.path.join(save_dir, output_prefix + 'val_rgb_detection.pickle'),
-#             type_whitelist=type_whitelist)
