@@ -1,15 +1,14 @@
 from __future__ import print_function
 
 import os
-import sys
 import numpy as np
 import tensorflow as tf
-import cv2
 from PIL import Image
 import pickle
 import argparse
-import json
-from pathlib import Path
+
+from absl import logging
+from tqdm import tqdm
 
 # Dataset helpers and loading utils -----------------------------------------------------------------
 
@@ -19,14 +18,24 @@ from lyft_dataset_sdk.utils.geometry_utils import BoxVisibility, box_in_image, v
     transform_matrix
 from lyft_dataset_sdk.utils.data_classes import LidarPointCloud, Box, Quaternion
 
-import copy
 from pyquaternion import Quaternion
 
-import cv2
-
-data_path, json_path = r'F:\\Lyft_Level5_Dataset', r'F:\\Lyft_Level5_Dataset\\train_data'
+# data_path, json_path = r'F:\\LyftDataset\\v1.01-train', r'F:\\LyftDataset\\v1.01-train\\v1.01-train'
+data_path, json_path = r'F:\\v1_02\\v1.02-train', r'F:\\v1_02\\v1.02-train\\v1.02-train'
 object_of_interest_type = ['animal', 'bicycle', 'bus', 'car', 'emergency_vehicle', 'motorcycle',
-                             'other_vehicle', 'pedestrian', 'truck']
+                           'other_vehicle', 'pedestrian', 'truck']
+
+g_type2onehotclass = {'animal': 0, 'bicycle': 1, 'bus': 2, 'car': 3, 'emergency_vehicle': 4, 'motorcycle': 5,
+                      'other_vehicle': 6, 'pedestrian': 7, 'truck': 8}
+g_type_mean_size = {'animal': np.array([0.704, 0.313, 0.489]),
+                    'bicycle': np.array([1.775, 0.654, 1.276]),
+                    'bus': np.array([11.784, 2.956, 3.416]),
+                    'car': np.array([4.682, 1.898, 1.668]),
+                    'emergency_vehicle': np.array([5.357, 2.028, 1.852]),
+                    'motorcycle': np.array([2.354, 0.942, 1.163]),
+                    'other_vehicle': np.array([8.307, 2.799, 3.277]),
+                    'pedestrian': np.array([0.787, 0.768, 1.79]),
+                    'truck': np.array([8.784, 2.866, 3.438])}
 
 
 def load_data(data_path, json_path):
@@ -46,15 +55,18 @@ def load_data(data_path, json_path):
 
 LyftData = load_data(data_path, json_path)
 
-g_type2onehotclass = {'animal': 0, 'bicycle': 1, 'bus': 2, 'car': 3, 'emergency_vehicle': 4, 'motorcycle': 5,
-                      'other_vehicle': 6, 'pedestrian': 7, 'truck': 8}
-
 
 def in_hull(p, hull):
     from scipy.spatial import Delaunay
     if not isinstance(hull, Delaunay):
         hull = Delaunay(hull)
     return hull.find_simplex(p) >= 0
+
+
+def size2class(size, obj_type):
+    size_class = g_type2onehotclass[obj_type]
+    size_residual = size - g_type_mean_size[obj_type]
+    return size_class, size_residual
 
 
 def int64_feature(value):
@@ -118,25 +130,6 @@ def map_pointcloud_to_image(pointsensor_token: str, camera_token: str):
     return pc3d, pc2d
 
 
-def read_2d_labels(img_name):
-    path = r'F:\v1.01-train\Bbox2D'
-    txt_name = img_name[7:-5] + '.txt'
-    with open(os.path.join(path, txt_name), "r", encoding="utf-8") as f:
-        content = eval(f.read())
-    return content
-
-
-def quaternion_yaw(q: Quaternion, in_image_frame: bool = True) -> float:
-    if in_image_frame:
-        v = np.dot(q.rotation_matrix, np.array([1, 0, 0]))
-        yaw = -np.arctan2(v[2], v[0])
-    else:
-        v = np.dot(q.rotation_matrix, np.array([1, 0, 0]))
-        yaw = np.arctan2(v[1], v[0])
-
-    return yaw
-
-
 def extract_pc_in_box2d(pc, box2d):
     """ pc: (N,2), box2d: (xmin,ymin,xmax,ymax) """
     box2d_corners = np.zeros((4, 2))
@@ -154,8 +147,8 @@ def extract_pc_in_box3d(input_pc, input_box3d):
     pc = np.transpose(input_pc)
     box3d = np.transpose(input_box3d)
 
-    box3d_roi_inds = in_hull(pc[:, 0:3], input_box3d)
-    return pc[box3d_roi_inds, :], box3d_roi_inds
+    box3d_roi_inds = in_hull(pc[:, 0:3], box3d)
+    return pc[box3d_roi_inds, :], box3d_roi_inds.astype(int)
 
 
 def mask_points(points: np.ndarray, xmin, xmax, ymin, ymax, depth_min=0, buffer_pixel=1) -> np.ndarray:
@@ -200,8 +193,8 @@ def get_2d_obj_corners(box_3d_corners_cam_frame):
     return [xmin, xmax, ymin, ymax]
 
 
-def get_heading_angle(box):
-    box_corners = box.corners
+def get_heading_angle(box: Box):
+    box_corners = box.corners()
     v = box_corners[:, 0] - box_corners[:, 4]
     heading_angle = np.arctan2(-v[2], v[0])
     return heading_angle
@@ -253,7 +246,7 @@ def angle2class(angle, num_class):
     angle_per_class = 2 * np.pi / float(num_class)
     shifted_angle = (angle + angle_per_class / 2) % (2 * np.pi)
     class_id = int(shifted_angle / angle_per_class)
-    residual_angle = shifted_angle - \ (class_id * angle_per_class + angle_per_class / 2)
+    residual_angle = shifted_angle - (class_id * angle_per_class + angle_per_class / 2)
     return class_id, residual_angle
 
 
@@ -263,8 +256,8 @@ def get_angle_class_residual(rotated_heading_angle):
     return angle_class, angle_residual
 
 
-class Frustum_pc_extractor():
-    def __init__(self, lyftd: LyftData, Bbox, pc_in_box, box_3d, box_2d, heading_angle, frustum_angle,
+class frustum_pc_extractor():
+    def __init__(self, lyftd: LyftData, Bbox: Box, pc_in_box, box_3d, box_2d, heading_angle, frustum_angle,
                  sample_token, camera_token, seg_label):
         self.dataset = lyftd
         self.Bbox = Bbox
@@ -280,6 +273,8 @@ class Frustum_pc_extractor():
         self.pc_in_box = pc_in_box[sel_index, :]  # Nx3
 
         self.seg_label = seg_label[sel_index]
+        self.box3d_center = np.copy(self.Bbox.center)
+        self.object_name = self.Bbox.name
 
     def calc_rotation_angle_center(self):
         return np.pi / 2.0 + self.frustum_angle
@@ -292,18 +287,18 @@ class Frustum_pc_extractor():
     def get_size_class_residual(self):
         # TODO size2class() and settings were copied from size, we therefore use
         # self._get_wlh() instead of self.box_sensor_coord.size
-        size_class, size_residual = size2class(self._get_wlh(), self.Bbox.name)
+        size_class, size_residual = size2class(self.get_wlh(), self.Bbox.name)
         return size_class, size_residual
 
-    def _get_one_hot_vec(self):
+    def get_one_hot_vec(self):
         one_hot_vec = np.zeros(len(g_type2onehotclass), dtype=np.int)
         one_hot_vec[g_type2onehotclass[self.object_name]] = 1
         return one_hot_vec
 
-    def _get_rotated_heading_angle(self):
+    def get_rotated_heading_angle(self):
         return self.heading_angle - self.frustum_angle
 
-    def _get_camera_intrinsic(self) -> np.ndarray:
+    def get_camera_intrinsic(self) -> np.ndarray:
         sd_record = self.dataset.get("sample_data", self.camera_token)
         cs_record = self.dataset.get("calibrated_sensor", sd_record["calibrated_sensor_token"])
 
@@ -311,12 +306,12 @@ class Frustum_pc_extractor():
 
         return camera_intrinsic
 
-    def _get_wlh(self):
+    def get_wlh(self):
         w, l, h = self.Bbox.wlh
         size_lwh = np.array([l, w, h])
         return size_lwh
 
-    def _flat_pointcloud(self):
+    def flat_pointcloud(self):
         # not support lidar data with intensity yet
         assert self.pc_in_box.shape[1] == 3
 
@@ -334,12 +329,14 @@ class Frustum_pc_extractor():
             'size_residual': float_list_feature(size_residual.ravel()),  # (3,)
 
             'frustum_point_cloud': float_list_feature(self.flat_pointcloud()),  # (N,3)
-            'rot_frustum_point_cloud': float_list_feature(self.get_rotated_point_cloud().ravel()),  # (N,3)
+            'rot_frustum_point_cloud': float_list_feature(
+                rot_y(self.pc_in_box, rot_angle=np.pi / 2.0 + self.frustum_angle).ravel()),  # (N,3)
 
             'seg_label': int64_list_feature(self.seg_label.ravel()),
 
             'box_3d': float_list_feature(self.box_3d.ravel()),  # (8,3)
-            'rot_box_3d': float_list_feature(self.get_rotated_box_3d().ravel()),  # (8,3)
+            'rot_box_3d': float_list_feature(rot_y(self.box_3d, rot_angle=(np.pi / 2.0 + self.frustum_angle)).ravel()),
+            # (8,3)
 
             'box_2d': float_list_feature(self.box_2d.ravel()),  # (4,)
 
@@ -357,12 +354,13 @@ class Frustum_pc_extractor():
             'annotation_token': bytes_feature(self.Bbox.token.encode('utf8')),
 
             'box_center': float_list_feature(self.Bbox.center.ravel()),  # (3,)
-            'rot_box_center': float_list_feature(self.get_rotated_center().ravel()),  # (3,)
+            'rot_box_center': float_list_feature(rot_y(np.expand_dims(self.box3d_center, 0),
+                                                       rot_angle=(np.pi / 2.0 + self.frustum_angle)).ravel()),  # (3,)
 
         }
-        example = tf.train.Example(features=tf.train.Features(feature=feature_dict))
+        sample = tf.train.Example(features=tf.train.Features(feature=feature_dict))
 
-        return example
+        return sample
 
 
 class FrustumExtractor(object):
@@ -377,7 +375,11 @@ class FrustumExtractor(object):
         self.sample_record = self.dataset.get("sample", sample_token)
         self.camera_type = camera_type
         self.camera_keys = self.extract_camera_keys()
-        self.pcl_data, self.pcl_token = self.read_pcl_data(use_multisweep)
+        # self.pcl_data, self.pcl_token = self.read_pcl_data(use_multisweep)
+        try:
+            self.pcl_data, self.pcl_token = self.read_pcl_data(use_multisweep=False)
+        except Exception:
+            pass
         self.pcl_in_cam_frame = {}
         self.multi_sweep = use_multisweep
 
@@ -389,10 +391,12 @@ class FrustumExtractor(object):
     def read_pcl_data(self, use_multisweep=False):
         pcl_token = self.sample_record['data']['LIDAR_TOP']
         pcl_path = self.dataset.get_sample_data_path(pcl_token)
+        print(pcl_path)
         if use_multisweep:
             pc, _ = LidarPointCloud.from_file_multisweep(self.dataset, self.sample_record, chan='LIDAR_TOP',
                                                          ref_chan='LIDAR_TOP', num_sweeps=26)
         else:
+
             pc = LidarPointCloud.from_file(pcl_path)
 
         return pc, pcl_token
@@ -409,8 +413,10 @@ class FrustumExtractor(object):
         for cam_key in self.camera_keys:
             cam_token = self.sample_record['data'][cam_key]
             cam_data = self.dataset.get('sample_data', cam_token)
-
-            pc, pc_token = self.read_pcl_data(use_multisweep=False)
+            try:
+                pc, pc_token = self.read_pcl_data(use_multisweep=False)
+            except Exception:
+                continue
             image_path, box_list, cam_intrinsic = self.dataset.get_sample_data(cam_token,
                                                                                box_vis_level=BoxVisibility.ANY,
                                                                                selected_anntokens=None)
@@ -435,66 +441,54 @@ class FrustumExtractor(object):
                 box_3D = np.transpose(box.corners())
                 point_clouds_in_box = point_clouds_in_box[0:3, :]
                 point_clouds_in_box = np.transpose(point_clouds_in_box)
-                frustum_points = frustum_pc_extractor()
+                if box.name not in object_of_interest_type:
+                    continue
+                if point_clouds_in_box.shape[0] < 300:
+                    continue
+
+                fp = frustum_pc_extractor(lyftd=self.dataset, Bbox=box,
+                                          pc_in_box=point_clouds_in_box,
+                                          box_3d=box_3D, box_2d=box_2D, heading_angle=heading_angle,
+                                          frustum_angle=frustum_angle, camera_token=cam_token,
+                                          sample_token=self.sample_record['token'], seg_label=seg_label)
+
+                yield fp
+
+
+def get_all_boxes_in_single_scene(scene_number, from_rgb_detection, ldf, use_multisweep=False,
+                                  object_classifier=None):
+    start_sample_token = ldf.scene[scene_number]['first_sample_token']
+    sample_token = start_sample_token
+    counter = 0
+    while sample_token != "":
+        if counter % 10 == 0:
+            logging.info("Processing {} token {}".format(scene_number, counter))
+        counter += 1
+        sample_record = ldf.get('sample', sample_token)
+        fg = FrustumExtractor(sample_token, ldf, use_multisweep=use_multisweep)
+        if not from_rgb_detection:
+            for fp in fg.Frustums_from_gt():
+                yield fp
+        # else:
+        #     # reserved for rgb detection data
+        #     for fp in fg.generate_frustums_from_2d(object_classifier):
+        #         yield fp
+
+        next_sample_token = sample_record['next']
+        sample_token = next_sample_token
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--gen_train', action='store_true',
-                        help='Generate train split frustum data with perturbed GT 2D boxes')
-
-    parser.add_argument('--gen_val', action='store_true', help='Generate val split frustum data with GT 2D boxes')
-
-    parser.add_argument('--gen_val_rgb_detection', action='store_true',
-                        help='Generate val split frustum data with RGB detection 2D boxes')
-
-    parser.add_argument('--car_only', action='store_true', help='Only generate cars')
-    parser.add_argument('--people_only', action='store_true', help='Only generate peds and cycs')
-    parser.add_argument('--save_dir', default=None, type=str, help='data directory to save data')
-
-    args = parser.parse_args()
-
-    np.random.seed(3)
-
-    if args.save_dir is None:
-        save_dir = 'kitti/data/pickle_data'
-    else:
-        save_dir = args.save_dir
-
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-
-    if args.car_only:
-        type_whitelist = ['Car']
-        output_prefix = 'frustum_caronly_'
-
-    elif args.people_only:
-        type_whitelist = ['Pedestrian', 'Cyclist']
-        output_prefix = 'frustum_pedcyc_'
-
-    else:
-        type_whitelist = ['Car', 'Pedestrian', 'Cyclist']
-        output_prefix = 'frustum_carpedcyc_'
-
-    if args.gen_train:
-        extract_frustum_data(
-            os.path.join(BASE_DIR, 'image_sets/train.txt'),
-            'training',
-            os.path.join(save_dir, output_prefix + 'train.pickle'),
-            perturb_box2d=True, augmentX=5,
-            type_whitelist=type_whitelist)
-
-    if args.gen_val:
-        extract_frustum_data(
-            os.path.join(BASE_DIR, 'image_sets/val.txt'),
-            'training',
-            os.path.join(save_dir, output_prefix + 'val.pickle'),
-            perturb_box2d=False, augmentX=1,
-            type_whitelist=type_whitelist)
-
-    if args.gen_val_rgb_detection:
-        extract_frustum_data_rgb_detection(
-            os.path.join(BASE_DIR, 'rgb_detections/rgb_detection_val.txt'),
-            'training',
-            os.path.join(save_dir, output_prefix + 'val_rgb_detection.pickle'),
-            type_whitelist=type_whitelist)
+    data_type = "train"
+    file_type = "gt"
+    scene_list = range(148)
+    for i in tqdm(scene_list):
+        with tf.io.TFRecordWriter(
+                os.path.join('./',
+                             "scene_{0}_{1}_{2}.tfrec".format(i, data_type, file_type))) as tfrw:
+            for fp in get_all_boxes_in_single_scene(scene_number=i, from_rgb_detection=False,
+                                                    ldf=LyftData,
+                                                    use_multisweep=False,
+                                                    object_classifier=None):
+                tfexample = fp.to_train_example()
+                tfrw.write(tfexample.SerializeToString())
