@@ -48,3 +48,6 @@ cfg.TRAIN.BATCH_SIZE = 8
 cfg.TRAIN.NUM_EPOCHS = 15
 
 cfg.TRAIN.DEVICE = 'cuda'
+
+# Model
+cfg.MODEL.
