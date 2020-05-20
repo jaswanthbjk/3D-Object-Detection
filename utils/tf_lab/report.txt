@@ -1,0 +1,23 @@
+TensorFlow 2.0 Upgrade Script
+-----------------------------
+Converted 1 files
+Detected 1 issues that require attention
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+File: test_tf_dataset.py
+--------------------------------------------------------------------------------
+test_tf_dataset.py:8:11: WARNING: Changing dataset.make_one_shot_iterator() to tf.compat.v1.data.make_one_shot_iterator(dataset). Please check this transformation.
+
+================================================================================
+Detailed log follows:
+
+================================================================================
+--------------------------------------------------------------------------------
+Processing file 'test_tf_dataset.py'
+ outputting to 'test_tf_dataset_v2.py'
+--------------------------------------------------------------------------------
+
+8:11: WARNING: Changing dataset.make_one_shot_iterator() to tf.compat.v1.data.make_one_shot_iterator(dataset). Please check this transformation.
+
+--------------------------------------------------------------------------------
+
