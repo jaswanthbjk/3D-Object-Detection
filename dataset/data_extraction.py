@@ -31,7 +31,7 @@ max_clip_distance = 60
 
 
 def extract_frustum_data(scene_list, output_filename, viz=False, perturb_box2d=False, augmentX=5,
-                         type_whitelist=['Car'], cam_channels=["CAM_FRONT"]):
+                         type_whitelist=['Car'], cam_channels=["CAM_FRONT"], txtfile = './train.txt'):
     id_list = []  # int number
     box2d_list = []  # [xmin,ymin,xmax,ymax]
     box3d_list = []  # (8,3) array in rect camera coord
@@ -55,6 +55,10 @@ def extract_frustum_data(scene_list, output_filename, viz=False, perturb_box2d=F
             for channel in cam_channels:
                 camera_token = sample_record["data"][channel]
                 camera_data = level5data.get('sample_data', camera_token)
+
+                f = open(txtfile, 'w')
+                f.write(camera_token + '\n')
+                f.close()
 
                 point_cloud, lidar_token = read_pointcloud(sample_record, use_multisweep=False)
 
@@ -95,15 +99,11 @@ def extract_frustum_data(scene_list, output_filename, viz=False, perturb_box2d=F
 
                         heading_angle = get_box_yaw_angle_in_camera_coords(box)
                         frustum_angle = get_frustum_angle(level5data, camera_token, xmax, xmin, ymax, ymin)
-                        # point_clouds_in_box = point_clouds_in_box[0:3, :]
                         point_clouds_in_box = np.transpose(point_clouds_in_box)
                         box_2d_pts = np.array([xmin, ymin, xmax, ymax])
                         box_3d_pts = np.transpose(box.corners())
                         w, l, h = box.wlh
                         box3d_size = np.array([l, w, h])
-
-                        # TODO filter out data
-                        # logging.debug("number of pc: {}".format(point_clouds_in_box.shape[0]))
 
                         if point_clouds_in_box.shape[0] < 100 and np.sum(seg_label) == 0:
                             continue
@@ -135,7 +135,8 @@ def extract_frustum_data(scene_list, output_filename, viz=False, perturb_box2d=F
 
 
 def extract_frustum_data_rgb_detection(scene_list, det_filename, output_filename, cam_channels=["CAM_FRONT"],
-                                       type_whitelist=['Car'], img_height_threshold=25, lidar_point_threshold=5):
+                                       type_whitelist=['Car'], img_height_threshold=25, lidar_point_threshold=5,
+                                       txtfile = './test.txt'):
     """ Extract point clouds in frustums extruded from 2D detection boxes.
         Update: Lidar points and 3d boxes are in *rect camera* coord system
             (as that in 3d box label files)
@@ -177,6 +178,10 @@ def extract_frustum_data_rgb_detection(scene_list, det_filename, output_filename
                 else:
                     continue
 
+                f = open(txtfile, 'w')
+                f.write(camera_token+'\n')  # python will convert \n to os.linesep
+                f.close()
+
                 camera_data = level5data.get('sample_data', camera_token)
 
                 point_cloud, lidar_token = read_pointcloud(sample_record, lyftd=level5data, use_multisweep=False)
@@ -184,7 +189,6 @@ def extract_frustum_data_rgb_detection(scene_list, det_filename, output_filename
                 image_path, box_list, cam_intrinsic = level5data.get_sample_data(camera_token,
                                                                                  box_vis_level=BoxVisibility.ALL,
                                                                                  selected_anntokens=None)
-                img = Image.open(image_path)
 
                 points, mask, image = map_pointcloud_to_image(pointsensor_token, camera_token)
 
@@ -240,7 +244,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_scenes', type=int, choices=range(0, 180),
                         help='Only generate cars; otherwise cars, peds and cycs')
     parser.add_argument('--num_cam_channels', type=int, choices=0,
-                        help=''0' for only CAM_FRONT and other value for rest of cam_channels')
+                        help='0 for only CAM_FRONT and other value for rest of cam_channels')
 
     args = parser.parse_args()
 
@@ -254,8 +258,8 @@ if __name__ == '__main__':
     data_dir = '/scratch/jbandl2s/Lyft_dataset'
     det_filename = './rgb_detections.txt'
 
-    type_whitelist = ['car', 'pedestrian', 'bicycle'] # As we chose to perform 3D object detection of only these 3 classes
-    # cam_channels = ["CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT", "CAM_BACK", "CAM_BACK_LEFT", "CAM_BACK_RIGHT"]
+    type_whitelist = ['car', 'pedestrian', 'bicycle']
+    # As we chose to perform 3D object detection of only these 3 classes
 
     if num_cam_channels == 0:
         cam_channels = ["CAM_FRONT"]
@@ -276,19 +280,19 @@ if __name__ == '__main__':
         output_prefix = prefix+'_train.pickle'
         extract_frustum_data(scene_list=train_scenes, type_whitelist=type_whitelist, viz=False, perturb_box2d=True,
                              augmentX=3, output_filename=os.path.join(data_dir, output_prefix),
-                             cam_channels=cam_channels)
+                             cam_channels=cam_channels, txtfile = './train.txt')
 
     if args.gen_val:
         output_prefix = prefix+'_val.pickle'
         extract_frustum_data(scene_list=val_scenes, type_whitelist=type_whitelist, viz=False, perturb_box2d=True,
                              augmentX=1, output_filename=os.path.join(data_dir, output_prefix),
-                             cam_channels=cam_channels)
+                             cam_channels=cam_channels, txtfile = './val.txt')
 
     if args.gen_test:
         output_prefix = prefix+'_test.pickle'
         extract_frustum_data(scene_list=test_scenes, type_whitelist=type_whitelist, viz=False, perturb_box2d=True,
                              augmentX=1, output_filename=os.path.join(data_dir, output_prefix),
-                             cam_channels=cam_channels)
+                             cam_channels=cam_channels, txtfile = './test.txt')
 
     if args.gen_rgb_detection_val:
         output_prefix = 'half_front_val_rgb_detection.pickle'
@@ -299,12 +303,12 @@ if __name__ == '__main__':
     # For ease of working with Keras based Frustum PointNet, we converted the pickles generated above to tfrec files
     output_prefix = prefix + '_train.pickle'
     test_gen = tfrec_Gen_Train_Val(os.path.join(data_dir, output_prefix))
-    test_gen.write_tfrec('/scratch/jbandl2s/lyft_kitti/train/lyft_train.tfrec')
+    test_gen.write_tfrec('/scratch/jbandl2s/Lyftdataset/lyft_train.tfrec')
 
     output_prefix = prefix + '_val.pickle'
     test_gen = tfrec_Gen_Train_Val(os.path.join(data_dir, output_prefix))
-    test_gen.write_tfrec('/scratch/jbandl2s/lyft_kitti/train/lyft_val.tfrec')
+    test_gen.write_tfrec('/scratch/jbandl2s/Lyftdataset/lyft_val.tfrec')
 
     output_prefix = prefix + '_test.pickle'
     test_gen = tfrecGen_test(os.path.join(data_dir, output_prefix))
-    test_gen.write_tfrec('/scratch/jbandl2s/lyft_kitti/train/lyft_test.tfrec')
+    test_gen.write_tfrec('/scratch/jbandl2s/Lyftdataset/lyft_test.tfrec')
